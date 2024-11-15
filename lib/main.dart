@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
+import 'settings_page.dart';  // 이 줄을 추가
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_background_service_android/flutter_background_service_android.dart';
@@ -89,6 +90,8 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF1E1E1E),
       ),
       home: const TimerPage(),
     );
@@ -108,6 +111,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
   int _selectedTime = 15 * 60;
   bool _isRunning = false;
   late SharedPreferences _prefs;
+  List<int> _timePresets = [15, 30, 45, 60];  // 추가
 
   @override
   void initState() {
@@ -126,7 +130,15 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
     _loadSavedState();
+    _loadTimePresets();  // 추가
   }
+
+  // 새로운 메서드 추가
+  void _loadTimePresets() {
+    setState(() {
+      _timePresets = _prefs.getStringList('timePresets')?.map(int.parse).toList() ?? [15, 30, 45, 60];
+    });
+  }  
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -230,61 +242,106 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF1E1E1E),
       appBar: AppBar(
-        title: const Text('Timer App'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text('Timer'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsPage()),
+              );
+              if (result != null) {
+                setState(() {
+                  _timePresets = result;
+                });
+              }
+            },
+          ),
+        ],        
       ),
       body: SafeArea(
         child: Center(
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              Text(
-                _formatTime(_timeInSeconds),
-                style: const TextStyle(
-                  fontSize: 60,
-                  fontWeight: FontWeight.bold,
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 300,
+                    height: 300,
+                    child: TweenAnimationBuilder<double>(
+                      duration: const Duration(milliseconds: 300), // 애니메이션 지속 시간
+                      curve: Curves.easeInOut, // 부드러운 애니메이션 커브
+                      tween: Tween<double>(
+                        begin: (_timeInSeconds + 1) / (_selectedTime == 0 ? 1 : _selectedTime),
+                        end: _timeInSeconds / (_selectedTime == 0 ? 1 : _selectedTime),
+                      ),
+                      builder: (context, value, _) => CircularProgressIndicator(
+                        value: value,
+                        strokeWidth: 12,
+                        backgroundColor: Colors.grey[800],
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          _isRunning ? Colors.blue : Colors.grey,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _formatTime(_timeInSeconds),
+                        style: const TextStyle(
+                          fontSize: 72,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      if (_isRunning)
+                        Text(
+                          'Remaining',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[400],
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 20),
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.center,
+                  children: _timePresets.map((minutes) => _buildTimeButton(minutes)).toList(),
                 ),
               ),
-              const SizedBox(height: 30),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                alignment: WrapAlignment.center,
-                children: [
-                  _buildTimeButton(15),
-                  _buildTimeButton(30),
-                  _buildTimeButton(45),
-                  _buildTimeButton(60),
-                ],
-              ),
-              const SizedBox(height: 30),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                alignment: WrapAlignment.center,
-                children: [
-                  ElevatedButton(
-                    onPressed: _startTimer,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+              Container(
+                margin: const EdgeInsets.only(bottom: 32),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildControlButton(
+                      icon: Icons.refresh,
+                      onPressed: _resetTimer,
+                      label: 'Reset',
                     ),
-                    child: const Text('Start'),
-                  ),
-                  ElevatedButton(
-                    onPressed: _stopTimer,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                    _buildMainButton(),
+                    _buildControlButton(
+                      icon: Icons.stop,
+                      onPressed: _stopTimer,
+                      label: 'Stop',
                     ),
-                    child: const Text('Stop'),
-                  ),
-                  ElevatedButton(
-                    onPressed: _resetTimer,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-                    ),
-                    child: const Text('Reset'),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -293,13 +350,66 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildControlButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+    required String label,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(icon),
+          onPressed: onPressed,
+          iconSize: 32,
+          color: Colors.white,
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.grey[400],
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMainButton() {
+    return GestureDetector(
+      onTap: _isRunning ? _stopTimer : _startTimer,
+      child: Container(
+        width: 80,
+        height: 80,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: _isRunning ? Colors.red : Colors.green,
+        ),
+        child: Icon(
+          _isRunning ? Icons.pause : Icons.play_arrow,
+          size: 40,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
+
   Widget _buildTimeButton(int minutes) {
+    final bool isSelected = _selectedTime == minutes * 60;
     return ElevatedButton(
       onPressed: () => _addTime(minutes),
       style: ElevatedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+        backgroundColor: isSelected ? Colors.blue : Colors.grey[800],
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(30),
+        ),
       ),
-      child: Text('$minutes min'),
+      child: Text(
+        '$minutes min',
+        style: const TextStyle(fontSize: 16),
+      ),
     );
   }
 }
