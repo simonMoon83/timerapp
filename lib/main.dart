@@ -3,7 +3,6 @@ import 'dart:ui';
 import 'settings_page.dart';  // 이 줄을 추가
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -20,7 +19,7 @@ Future<void> initializeService() async {
     androidConfiguration: AndroidConfiguration(
       onStart: onStart,
       autoStart: true,
-      isForegroundMode: true,
+      isForegroundMode: false,  // 포그라운드 모드 비활성화
       notificationChannelId: 'timer_channel',
       initialNotificationTitle: 'Timer App',
       initialNotificationContent: 'Running in background',
@@ -55,28 +54,14 @@ Future<bool> onIosBackground(ServiceInstance service) async {
 void onStart(ServiceInstance service) {
   DartPluginRegistrant.ensureInitialized();
   
-  if (service is AndroidServiceInstance) {
-    service.on('setAsForeground').listen((event) {
-      service.setAsForegroundService();
-    });
-    service.on('setAsBackground').listen((event) {
-      service.setAsBackgroundService();
-    });
-  }
-
+  // 서비스가 포그라운드로 전환되는 부분 제거
   service.on('stopService').listen((event) {
     service.stopSelf();
   });
 
   Timer.periodic(const Duration(seconds: 1), (timer) async {
-    if (service is AndroidServiceInstance) {
-      if (await service.isForegroundService()) {
-        service.setForegroundNotificationInfo(
-          title: "Timer App",
-          content: "Timer is running",
-        );
-      }
-    }
+    // 백그라운드에서 타이머 로직 구현
+    // 필요에 따라 알림을 설정할 수 있습니다.
   });
 }
 
