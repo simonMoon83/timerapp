@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
+import 'dart:math';  // Add this line
 import 'settings_page.dart';  // 이 줄을 추가
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
@@ -107,16 +108,19 @@ class AlarmPlayer {
 
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isAlarmPlaying = false;
+  String _currentSound = 'alarm1';  // 기본값
 
   Future<void> initialize() async {
     await _audioPlayer.setVolume(1.0);
     await _audioPlayer.setReleaseMode(ReleaseMode.loop);
-    await _audioPlayer.setSource(AssetSource('alarm/alarm.mp3'));
   }
 
-  Future<void> playAlarm() async {
+  Future<void> playAlarm([String? sound]) async {
     if (!_isAlarmPlaying) {
-      await _audioPlayer.resume();
+      if (sound != null) {
+        _currentSound = sound;
+      }
+      await _audioPlayer.play(AssetSource('sounds/$_currentSound.mp3'));
       _isAlarmPlaying = true;
     }
   }
@@ -126,6 +130,10 @@ class AlarmPlayer {
       await _audioPlayer.stop();
       _isAlarmPlaying = false;
     }
+  }
+
+  void setSound(String sound) {
+    _currentSound = sound;
   }
 
   bool get isAlarmPlaying => _isAlarmPlaying;
@@ -144,20 +152,21 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
   int _selectedTime = 15 * 60;
   bool _isRunning = false;
   late SharedPreferences _prefs;
-  List<int> _timePresets = [15, 30, 45, 60];  // 추가
+  List<int> _timePresets = [15, 30, 45, 60];
+  List<String> _soundPresets = ['alarm1', 'alarm2', 'alarm3', 'alarm4'];
+  int _currentPresetIndex = 0;  // 현재 선택된 프리셋 인덱스
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initPrefs();
-    _setupNotificationChannel(); // 추가
-    AlarmPlayer().initialize(); // AlarmPlayer 초기화 호출
+    _setupNotificationChannel();
+    AlarmPlayer().initialize();
   }
 
   @override
   void dispose() {
-    // AlarmPlayer 정리 추가
     AlarmPlayer().stopAlarm();
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
@@ -167,13 +176,13 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
     _loadSavedState();
-    _loadTimePresets();  // 추가
+    _loadTimePresets();
   }
 
-  // 새로운 메서드 추가
   void _loadTimePresets() {
     setState(() {
       _timePresets = _prefs.getStringList('timePresets')?.map(int.parse).toList() ?? [15, 30, 45, 60];
+      _soundPresets = _prefs.getStringList('soundPresets') ?? List.filled(4, 'alarm1');
     });
   }
 
@@ -190,6 +199,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
     await _prefs.setInt('timeInSeconds', _timeInSeconds);
     await _prefs.setInt('selectedTime', _selectedTime);
     await _prefs.setBool('isRunning', _isRunning);
+    await _prefs.setInt('currentPresetIndex', _currentPresetIndex);
   }
 
   void _loadSavedState() {
@@ -197,6 +207,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
       _timeInSeconds = _prefs.getInt('timeInSeconds') ?? _selectedTime;
       _selectedTime = _prefs.getInt('selectedTime') ?? 15 * 60;
       _isRunning = _prefs.getBool('isRunning') ?? false;
+      _currentPresetIndex = _prefs.getInt('currentPresetIndex') ?? 0;
       if (_isRunning) {
         _startTimer();
       }
@@ -227,9 +238,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
       _isRunning = false;
       _saveState();
     });
-    // 알림음 중지
     await AlarmPlayer().stopAlarm();
-    // 알림 제거
     await flutterLocalNotificationsPlugin.cancel(0);
   }
 
@@ -242,13 +251,15 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
     });
   }
 
-  void _addTime(int minutes) {
+  void _addTime(int seconds) {
     setState(() {
-      if (_isRunning) {
-        _timeInSeconds += minutes * 60;
-      } else {
-        _selectedTime = minutes * 60;
+      if (!_isRunning) {
+        _currentPresetIndex = _timePresets.indexOf(seconds);
+        _selectedTime = seconds;
         _timeInSeconds = _selectedTime;
+      } else {
+        _timeInSeconds += seconds;
+        _selectedTime = _timeInSeconds;  // 시간이 추가될 때 selectedTime도 업데이트
       }
       _saveState();
     });
@@ -256,9 +267,9 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
 
   Future<void> _showNotification(String title, String body) async {
     try {
-      await AlarmPlayer().playAlarm();
+      String selectedSound = _soundPresets[_currentPresetIndex];
+      await AlarmPlayer().playAlarm(selectedSound);
 
-      // 알림 클릭 시 알림음 중지를 위한 액션 추가
       const AndroidNotificationDetails androidPlatformChannelSpecifics =
           AndroidNotificationDetails(
         'timer_notification',
@@ -266,11 +277,11 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
         channelDescription: 'Notification channel for timer',
         importance: Importance.max,
         priority: Priority.high,
-        sound: null, // 시스템 알림음 비활성화
-        playSound: false,  // 시스템 알림음 비활성화
+        sound: null,
+        playSound: false,
         enableVibration: true,
-        ongoing: true,  // 알림을 지속적으로 표시
-        autoCancel: false,  // 자동으로 알림이 사라지지 않도록 설정
+        ongoing: true,
+        autoCancel: false,
         actions: <AndroidNotificationAction>[
           AndroidNotificationAction(
             'stop_alarm',
@@ -297,14 +308,13 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
     }
   }
 
-  // 새로운 메서드 추가
   Future<void> _setupNotificationChannel() async {
     const AndroidNotificationChannel channel = AndroidNotificationChannel(
       'timer_notification',
       'Timer Notifications',
       description: 'Notification channel for timer',
       importance: Importance.max,
-      playSound: false, // 시스템 알림음 비활성화
+      playSound: false,
     );
 
     await flutterLocalNotificationsPlugin
@@ -336,7 +346,8 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
               );
               if (result != null) {
                 setState(() {
-                  _timePresets = result;
+                  _timePresets = result['timePresets'];
+                  _soundPresets = result['soundPresets'];
                 });
               }
             },
@@ -355,14 +366,14 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
                     width: 300,
                     height: 300,
                     child: TweenAnimationBuilder<double>(
-                      duration: const Duration(milliseconds: 300), // 애니메이션 지속 시간
-                      curve: Curves.easeInOut, // 부드러운 애니메이션 커브
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
                       tween: Tween<double>(
-                        begin: (_timeInSeconds + 1) / (_selectedTime == 0 ? 1 : _selectedTime),
-                        end: _timeInSeconds / (_selectedTime == 0 ? 1 : _selectedTime),
+                        begin: _timeInSeconds / _selectedTime,
+                        end: _timeInSeconds / _selectedTime,
                       ),
                       builder: (context, value, _) => CircularProgressIndicator(
-                        value: value,
+                        value: value.clamp(0.0, 1.0),
                         strokeWidth: 12,
                         backgroundColor: Colors.grey[800],
                         valueColor: AlwaysStoppedAnimation<Color>(
@@ -473,10 +484,17 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildTimeButton(int minutes) {
-    final bool isSelected = _selectedTime == minutes * 60;
+  Widget _buildTimeButton(int seconds) {
+    final bool isSelected = _selectedTime == seconds;
+    String buttonText;
+    if (seconds >= 60) {
+      buttonText = '${seconds ~/ 60}m ${seconds % 60}s';
+    } else {
+      buttonText = '${seconds}s';
+    }
+    
     return ElevatedButton(
-      onPressed: () => _addTime(minutes),
+      onPressed: () => _addTime(seconds),
       style: ElevatedButton.styleFrom(
         backgroundColor: isSelected ? Colors.blue : Colors.grey[800],
         foregroundColor: Colors.white,
@@ -486,7 +504,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
         ),
       ),
       child: Text(
-        '$minutes min',
+        buttonText,
         style: const TextStyle(fontSize: 16),
       ),
     );
