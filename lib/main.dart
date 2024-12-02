@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
-import 'dart:math';  // Add this line
-import 'settings_page.dart';  // 이 줄을 추가
+import 'dart:math'; // Add this line
+import 'settings_page.dart'; // 이 줄을 추가
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -25,7 +25,7 @@ Future<void> initializeService() async {
     androidConfiguration: AndroidConfiguration(
       onStart: onStart,
       autoStart: true,
-      isForegroundMode: false,  // 포그라운드 모드 비활성화
+      isForegroundMode: false, // 포그라운드 모드 비활성화
       notificationChannelId: 'timer_channel',
       initialNotificationTitle: 'Timer App',
       initialNotificationContent: 'Running in background',
@@ -50,7 +50,8 @@ Future<void> initializeNotifications() async {
 
   await flutterLocalNotificationsPlugin.initialize(
     initializationSettings,
-    onDidReceiveNotificationResponse: (NotificationResponse notificationResponse) async {
+    onDidReceiveNotificationResponse:
+        (NotificationResponse notificationResponse) async {
       if (notificationResponse.notificationResponseType ==
               NotificationResponseType.selectedNotificationAction &&
           notificationResponse.actionId == 'stop_alarm') {
@@ -108,7 +109,7 @@ class AlarmPlayer {
 
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isAlarmPlaying = false;
-  String _currentSound = 'alarm1';  // 기본값
+  String _currentSound = 'alarm1'; // 기본값
 
   Future<void> initialize() async {
     await _audioPlayer.setVolume(1.0);
@@ -154,7 +155,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
   late SharedPreferences _prefs;
   List<int> _timePresets = [15, 30, 45, 60];
   List<String> _soundPresets = ['alarm1', 'alarm2', 'alarm3', 'alarm4'];
-  int _currentPresetIndex = 0;  // 현재 선택된 프리셋 인덱스
+  int _currentPresetIndex = 0; // 현재 선택된 프리셋 인덱스
 
   @override
   void initState() {
@@ -181,8 +182,11 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
 
   void _loadTimePresets() {
     setState(() {
-      _timePresets = _prefs.getStringList('timePresets')?.map(int.parse).toList() ?? [15, 30, 45, 60];
-      _soundPresets = _prefs.getStringList('soundPresets') ?? List.filled(4, 'alarm1');
+      _timePresets =
+          _prefs.getStringList('timePresets')?.map(int.parse).toList() ??
+              [15, 30, 45, 60];
+      _soundPresets =
+          _prefs.getStringList('soundPresets') ?? List.filled(4, 'alarm1');
     });
   }
 
@@ -259,7 +263,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
         _timeInSeconds = _selectedTime;
       } else {
         _timeInSeconds += seconds;
-        _selectedTime = _timeInSeconds;  // 시간이 추가될 때 selectedTime도 업데이트
+        _selectedTime = _timeInSeconds; // 시간이 추가될 때 selectedTime도 업데이트
       }
       _saveState();
     });
@@ -318,7 +322,8 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
     );
 
     await flutterLocalNotificationsPlugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(channel);
   }
 
@@ -326,6 +331,30 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
     int minutes = timeInSeconds ~/ 60;
     int seconds = timeInSeconds % 60;
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _openSettings() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const SettingsPage(),
+      ),
+    );
+
+    // 설정이 변경되었다면 상태 업데이트
+    if (result != null && mounted) {
+      setState(() {
+        _timePresets = (result['timePresets'] as List<int>);
+        _soundPresets = (result['soundPresets'] as List<String>);
+        // 현재 선택된 시간도 업데이트
+        _selectedTime = _timePresets[_currentPresetIndex];
+        if (!_isRunning) {
+          _timeInSeconds = _selectedTime;
+        }
+      });
+      // 설정이 변경되었으므로 상태 저장
+      _saveState();
+    }
   }
 
   @override
@@ -339,18 +368,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
-            onPressed: () async {
-              final result = await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SettingsPage()),
-              );
-              if (result != null) {
-                setState(() {
-                  _timePresets = result['timePresets'];
-                  _soundPresets = result['soundPresets'];
-                });
-              }
-            },
+            onPressed: _openSettings,
           ),
         ],
       ),
@@ -411,7 +429,9 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
                   spacing: 12,
                   runSpacing: 12,
                   alignment: WrapAlignment.center,
-                  children: _timePresets.map((minutes) => _buildTimeButton(minutes)).toList(),
+                  children: _timePresets
+                      .map((minutes) => _buildTimeButton(minutes))
+                      .toList(),
                 ),
               ),
               Container(
@@ -492,7 +512,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
     } else {
       buttonText = '${seconds}s';
     }
-    
+
     return ElevatedButton(
       onPressed: () => _addTime(seconds),
       style: ElevatedButton.styleFrom(

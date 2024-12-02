@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/cupertino.dart';
+import 'dart:io';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({Key? key}) : super(key: key);
@@ -12,8 +14,8 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   List<int> _timePresets = [15 * 60, 30 * 60, 45 * 60, 60 * 60];
   List<String> _soundPresets = ['alarm1', 'alarm1', 'alarm1', 'alarm1'];
-  List<TextEditingController> _minuteControllers = [];
-  List<TextEditingController> _secondControllers = [];
+  List<int> _selectedMinutes = List.filled(4, 0);
+  List<int> _selectedSeconds = List.filled(4, 0);
   late SharedPreferences _prefs;
   final AudioPlayer _audioPlayer = AudioPlayer();
   List<bool> _isPlayingList = List.filled(4, false);
@@ -29,8 +31,6 @@ class _SettingsPageState extends State<SettingsPage> {
   void initState() {
     super.initState();
     _initPrefs();
-    _minuteControllers = List.generate(4, (index) => TextEditingController());
-    _secondControllers = List.generate(4, (index) => TextEditingController());
     _initAudioPlayer();
   }
 
@@ -40,12 +40,6 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   void dispose() {
-    for (var controller in _minuteControllers) {
-      controller.dispose();
-    }
-    for (var controller in _secondControllers) {
-      controller.dispose();
-    }
     _audioPlayer.dispose();
     super.dispose();
   }
@@ -69,10 +63,8 @@ class _SettingsPageState extends State<SettingsPage> {
       
       for (int i = 0; i < _timePresets.length; i++) {
         int totalSeconds = _timePresets[i];
-        int minutes = totalSeconds ~/ 60;
-        int seconds = totalSeconds % 60;
-        _minuteControllers[i].text = minutes.toString();
-        _secondControllers[i].text = seconds.toString();
+        _selectedMinutes[i] = totalSeconds ~/ 60;
+        _selectedSeconds[i] = totalSeconds % 60;
       }
     });
   }
@@ -83,10 +75,58 @@ class _SettingsPageState extends State<SettingsPage> {
       _soundPresets = List.filled(4, 'alarm1');
 
       for (int i = 0; i < _timePresets.length; i++) {
-        _minuteControllers[i].text = '0';
-        _secondControllers[i].text = _timePresets[i].toString();
+        _selectedMinutes[i] = 0;
+        _selectedSeconds[i] = _timePresets[i];
       }
     });
+  }
+
+  Future<void> _savePresets() async {
+    try {
+      // 시간 프리셋 저장
+      List<String> timePresetStrings = [];
+      for (int i = 0; i < 4; i++) {
+        int totalSeconds = _selectedMinutes[i] * 60 + _selectedSeconds[i];
+        timePresetStrings.add(totalSeconds.toString());
+      }
+      
+      // 상태 업데이트
+      setState(() {
+        _timePresets = timePresetStrings.map(int.parse).toList();
+      });
+
+      // SharedPreferences에 저장
+      await _prefs.setStringList('timePresets', timePresetStrings);
+      await _prefs.setStringList('soundPresets', _soundPresets);
+
+      // 저장 성공 메시지 표시
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('설정이 저장되었습니다.'),
+            duration: Duration(seconds: 2),
+            backgroundColor: Colors.blue,
+          ),
+        );
+        
+        // 설정 페이지를 닫고 결과 반환
+        Navigator.pop(context, {
+          'timePresets': _timePresets,
+          'soundPresets': _soundPresets,
+        });
+      }
+    } catch (e) {
+      // 에러 발생 시 메시지 표시
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('저장 중 오류가 발생했습니다: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      print('Error saving presets: $e');
+    }
   }
 
   Future<void> _playSound(String sound, int index) async {
@@ -116,43 +156,229 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _savePresets() async {
-    bool isValid = true;
-    List<int> newPresets = [];
-
-    for (int i = 0; i < 4; i++) {
-      int? minutes = int.tryParse(_minuteControllers[i].text);
-      int? seconds = int.tryParse(_secondControllers[i].text);
-      
-      if (minutes == null || seconds == null || seconds >= 60 || minutes < 0 || seconds < 0) {
-        isValid = false;
-        break;
-      }
-      
-      newPresets.add(minutes * 60 + seconds);
-    }
-
-    if (isValid) {
-      setState(() {
-        _timePresets = newPresets;
-      });
-      List<String> timePresets = _timePresets.map((e) => e.toString()).toList();
-      await _prefs.setStringList('timePresets', timePresets);
-      await _prefs.setStringList('soundPresets', _soundPresets);
-      
-      if (mounted) {
-        Navigator.pop(context, {
-          'timePresets': _timePresets,
-          'soundPresets': _soundPresets,
-        });
-      }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter valid numbers (seconds should be less than 60)'),
+  Widget _buildTimeSelector(int index) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // 분 선택 콤보박스
+        Expanded(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            child: Platform.isIOS
+                ? CupertinoPicker(
+                    backgroundColor: Colors.transparent,
+                    itemExtent: 32.0,
+                    scrollController: FixedExtentScrollController(
+                      initialItem: _selectedMinutes[index],
+                    ),
+                    onSelectedItemChanged: (int value) {
+                      setState(() {
+                        _selectedMinutes[index] = value;
+                      });
+                    },
+                    children: List<Widget>.generate(60, (int index) {
+                      return Center(
+                        child: Text(
+                          '$index',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      );
+                    }),
+                  )
+                : DropdownButtonFormField<int>(
+                    decoration: const InputDecoration(
+                      labelText: '분',
+                      border: OutlineInputBorder(),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                    value: _selectedMinutes[index],
+                    items: List.generate(
+                      60,
+                      (i) => DropdownMenuItem(
+                        value: i,
+                        child: Text(i.toString()),
+                      ),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedMinutes[index] = value!;
+                      });
+                    },
+                  ),
+          ),
         ),
-      );
-    }
+        Text(
+          '분',
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.8),
+            fontSize: 16,
+          ),
+        ),
+        const SizedBox(width: 16),
+        // 초 선택 콤보박스
+        Expanded(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            child: Platform.isIOS
+                ? CupertinoPicker(
+                    backgroundColor: Colors.transparent,
+                    itemExtent: 32.0,
+                    scrollController: FixedExtentScrollController(
+                      initialItem: _selectedSeconds[index],
+                    ),
+                    onSelectedItemChanged: (int value) {
+                      setState(() {
+                        _selectedSeconds[index] = value;
+                      });
+                    },
+                    children: List<Widget>.generate(60, (int index) {
+                      return Center(
+                        child: Text(
+                          '$index',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      );
+                    }),
+                  )
+                : DropdownButtonFormField<int>(
+                    decoration: const InputDecoration(
+                      labelText: '초',
+                      border: OutlineInputBorder(),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                    value: _selectedSeconds[index],
+                    items: List.generate(
+                      60,
+                      (i) => DropdownMenuItem(
+                        value: i,
+                        child: Text(i.toString()),
+                      ),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedSeconds[index] = value!;
+                      });
+                    },
+                  ),
+          ),
+        ),
+        Text(
+          '초',
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.8),
+            fontSize: 16,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSoundSelector(int index) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Expanded(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            child: Platform.isIOS
+                ? CupertinoPicker(
+                    backgroundColor: Colors.transparent,
+                    itemExtent: 32.0,
+                    scrollController: FixedExtentScrollController(
+                      initialItem: _availableSounds.indexOf(_soundPresets[index]),
+                    ),
+                    onSelectedItemChanged: (int value) {
+                      setState(() {
+                        _soundPresets[index] = _availableSounds[value];
+                      });
+                    },
+                    children: _availableSounds.map((sound) {
+                      return Center(
+                        child: Text(
+                          sound,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      );
+                    }).toList(),
+                  )
+                : DropdownButtonFormField<String>(
+                    decoration: const InputDecoration(
+                      labelText: '알람음',
+                      border: OutlineInputBorder(),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                    value: _soundPresets[index],
+                    dropdownColor: const Color(0xFF2E2E2E),
+                    style: const TextStyle(color: Colors.white),
+                    items: _availableSounds.map((String value) {
+                      return DropdownMenuItem<String>(
+                        value: value,
+                        child: Text(value),
+                      );
+                    }).toList(),
+                    onChanged: (String? newValue) {
+                      if (newValue != null) {
+                        setState(() {
+                          _soundPresets[index] = newValue;
+                        });
+                      }
+                    },
+                  ),
+          ),
+        ),
+        IconButton(
+          icon: Icon(
+            _isPlayingList[index] ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+            color: Colors.blue,
+            size: 28,
+          ),
+          onPressed: () => _playSound(_soundPresets[index], index),
+          tooltip: _isPlayingList[index] ? '중지' : '미리 듣기',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPresetRow(int index) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4.0),
+      color: const Color(0xFF2A2A2A),
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: Colors.blue.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'Preset ${index + 1}',
+                  style: const TextStyle(
+                    color: Colors.blue,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _buildTimeSelector(index),
+            const SizedBox(height: 12),
+            _buildSoundSelector(index),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -172,7 +398,9 @@ class _SettingsPageState extends State<SettingsPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.blue),
-            onPressed: _resetToDefaults,
+            onPressed: () {
+              _resetToDefaults();
+            },
             tooltip: '초기화',
           ),
         ],
@@ -188,177 +416,55 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Timer Presets',
-                style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.blue,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: 4,
-                  itemBuilder: (context, index) => _buildPresetRow(index),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Center(
-                child: ElevatedButton(
-                  onPressed: _savePresets,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    elevation: 5,
-                  ),
-                  child: const Text(
-                    'Save Settings',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPresetRow(int index) {
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8.0),
-      color: const Color(0xFF2A2A2A),
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(15),
-        side: BorderSide(
-          color: Colors.blue.withOpacity(0.3),
-          width: 1,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Preset ${index + 1}',
-              style: const TextStyle(
-                color: Colors.blue,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: _buildTextField(
-                    _minuteControllers[index],
-                    'Minutes',
-                    index,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildTextField(
-                    _secondControllers[index],
-                    'Seconds',
-                    index,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.blue.withOpacity(0.3)),
-                    ),
-                    child: DropdownButton<String>(
-                      value: _soundPresets[index],
-                      isExpanded: true,
-                      dropdownColor: const Color(0xFF2E2E2E),
-                      style: const TextStyle(color: Colors.white),
-                      underline: Container(),
-                      onChanged: (String? newValue) {
-                        if (newValue != null) {
-                          setState(() {
-                            _soundPresets[index] = newValue;
-                          });
-                        }
-                      },
-                      items: _availableSounds.map<DropdownMenuItem<String>>((String value) {
-                        return DropdownMenuItem<String>(
-                          value: value,
-                          child: Text(value),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                IconButton(
-                  icon: Icon(
-                    _isPlayingList[index] ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+                const Text(
+                  'Timer Presets',
+                  style: TextStyle(
+                    fontSize: 20,
                     color: Colors.blue,
-                    size: 32,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2,
                   ),
-                  onPressed: () => _playSound(_soundPresets[index], index),
-                  tooltip: _isPlayingList[index] ? '중지' : '미리 듣기',
                 ),
+                const SizedBox(height: 16),
+                // ListView.builder 대신 Column과 List.generate 사용
+                ...List.generate(
+                  4,
+                  (index) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: _buildPresetRow(index),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Center(
+                  child: ElevatedButton(
+                    onPressed: _savePresets,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      elevation: 5,
+                    ),
+                    child: const Text(
+                      'Save Settings',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
               ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTextField(TextEditingController controller, String label, int index) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        color: const Color(0xFF353535),
-      ),
-      child: TextField(
-        controller: controller,
-        keyboardType: TextInputType.number,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 16,
-        ),
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: TextStyle(color: Colors.grey[400]),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          border: InputBorder.none,
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide(color: Colors.blue.withOpacity(0.3)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: Colors.blue),
           ),
         ),
       ),
